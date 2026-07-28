@@ -1,0 +1,1556 @@
+# Dracut in Linux — Important Commands and Examples
+
+## 1. What is Dracut?
+
+`dracut` is a Linux utility used to create and rebuild the **initial RAM filesystem**, commonly called **initramfs**.
+
+The initramfs is loaded into memory by the bootloader before the real root filesystem is mounted. It contains the drivers, tools, scripts, and configuration required to locate and mount the root filesystem.
+
+On RHEL, Rocky Linux, AlmaLinux, CentOS Stream, Fedora, and similar distributions, dracut is the standard tool used to build initramfs images.
+
+Typical initramfs file:
+
+```bash
+/boot/initramfs-$(uname -r).img
+```
+
+Example:
+
+```bash
+/boot/initramfs-5.14.0-503.el9.x86_64.img
+```
+
+---
+
+## 2. Why is Dracut Important?
+
+Dracut is important because Linux may not boot if the initramfs is missing, damaged, or does not contain required drivers.
+
+The initramfs may need support for:
+
+- LVM logical volumes
+- Software RAID
+- Multipath storage
+- NVMe devices
+- SCSI and SATA controllers
+- LUKS-encrypted disks
+- XFS and ext4 filesystems
+- Network boot
+- iSCSI storage
+- Device Mapper
+- Kernel modules
+
+A broken initramfs can cause errors such as:
+
+```text
+Entering emergency mode
+```
+
+```text
+Warning: /dev/mapper/rhel-root does not exist
+```
+
+```text
+Dracut Emergency Shell
+```
+
+```text
+Cannot find root device
+```
+
+---
+
+## 3. Important Dracut Files
+
+### 3.1 Main configuration file
+
+```bash
+/etc/dracut.conf
+```
+
+Display the file:
+
+```bash
+cat /etc/dracut.conf
+```
+
+Normally, administrators should avoid making large changes directly in this file.
+
+### 3.2 Recommended configuration directory
+
+```bash
+/etc/dracut.conf.d/
+```
+
+List configuration snippets:
+
+```bash
+ls -l /etc/dracut.conf.d/
+```
+
+Display all configuration snippets:
+
+```bash
+cat /etc/dracut.conf.d/*.conf
+```
+
+A custom configuration file can be created like this:
+
+```bash
+vi /etc/dracut.conf.d/99-custom.conf
+```
+
+Example:
+
+```bash
+add_dracutmodules+=" lvm "
+add_drivers+=" nvme xfs "
+hostonly="yes"
+```
+
+### 3.3 Initramfs images
+
+```bash
+ls -lh /boot/initramfs-*.img
+```
+
+### 3.4 Kernel modules directory
+
+```bash
+/lib/modules/$(uname -r)/
+```
+
+Check whether the current kernel module directory exists:
+
+```bash
+ls -ld /lib/modules/$(uname -r)
+```
+
+---
+
+## 4. Check Whether Dracut is Installed
+
+On RHEL-based systems:
+
+```bash
+rpm -q dracut
+```
+
+Example output:
+
+```text
+dracut-057-70.git20240819.el9.x86_64
+```
+
+Display package information:
+
+```bash
+rpm -qi dracut
+```
+
+Find the dracut executable:
+
+```bash
+which dracut
+```
+
+```bash
+command -v dracut
+```
+
+Display the installed version:
+
+```bash
+dracut --version
+```
+
+---
+
+## 5. Display Dracut Help
+
+```bash
+dracut --help
+```
+
+View the manual page:
+
+```bash
+man dracut
+```
+
+Search for a specific option:
+
+```bash
+man dracut
+```
+
+Then type:
+
+```text
+/hostonly
+```
+
+---
+
+## 6. Important Dracut Commands
+
+## 6.1 Rebuild Initramfs for the Current Kernel
+
+```bash
+dracut --force
+```
+
+Short form:
+
+```bash
+dracut -f
+```
+
+This rebuilds:
+
+```bash
+/boot/initramfs-$(uname -r).img
+```
+
+Recommended verification:
+
+```bash
+ls -lh /boot/initramfs-$(uname -r).img
+```
+
+Use this after:
+
+- Storage-driver changes
+- LVM changes
+- Multipath configuration changes
+- Filesystem-driver changes
+- Boot failures caused by initramfs
+- Adding required kernel modules
+
+---
+
+## 6.2 Rebuild Initramfs Verbosely
+
+```bash
+dracut -f -v
+```
+
+The `-v` option displays detailed progress.
+
+Example:
+
+```bash
+dracut --force --verbose
+```
+
+This is useful for troubleshooting missing modules and configuration errors.
+
+---
+
+## 6.3 Create an Initramfs with a Specific Filename
+
+```bash
+dracut /boot/initramfs-custom.img
+```
+
+For a specific kernel:
+
+```bash
+dracut /boot/initramfs-custom.img 5.14.0-503.el9.x86_64
+```
+
+Verify:
+
+```bash
+ls -lh /boot/initramfs-custom.img
+```
+
+---
+
+## 6.4 Rebuild Initramfs for a Specific Kernel
+
+First list installed kernels:
+
+```bash
+rpm -q kernel-core
+```
+
+Then rebuild the initramfs:
+
+```bash
+dracut -f /boot/initramfs-5.14.0-503.el9.x86_64.img 5.14.0-503.el9.x86_64
+```
+
+Alternative:
+
+```bash
+dracut --force --kver 5.14.0-503.el9.x86_64
+```
+
+Before running it, verify the module directory:
+
+```bash
+ls -ld /lib/modules/5.14.0-503.el9.x86_64
+```
+
+---
+
+## 6.5 Regenerate Initramfs for All Installed Kernels
+
+```bash
+dracut --regenerate-all --force
+```
+
+Verbose mode:
+
+```bash
+dracut --regenerate-all --force --verbose
+```
+
+Use this carefully because it rebuilds initramfs images for all installed kernels and may require significant space in `/boot`.
+
+Check `/boot` space first:
+
+```bash
+df -h /boot
+```
+
+---
+
+## 6.6 List Available Dracut Modules
+
+```bash
+dracut --list-modules
+```
+
+Common modules include:
+
+```text
+bash
+systemd
+kernel-modules
+lvm
+mdraid
+multipath
+crypt
+iscsi
+network
+xfs
+```
+
+Search for a module:
+
+```bash
+dracut --list-modules | grep -i lvm
+```
+
+```bash
+dracut --list-modules | grep -i multipath
+```
+
+---
+
+## 6.7 Add a Dracut Module Temporarily
+
+```bash
+dracut -f --add "lvm"
+```
+
+Add multiple modules:
+
+```bash
+dracut -f --add "lvm crypt"
+```
+
+Example for multipath:
+
+```bash
+dracut -f --add "multipath"
+```
+
+Example for network boot:
+
+```bash
+dracut -f --add "network"
+```
+
+---
+
+## 6.8 Omit a Dracut Module
+
+```bash
+dracut -f --omit "plymouth"
+```
+
+Omit multiple modules:
+
+```bash
+dracut -f --omit "plymouth network"
+```
+
+Do not omit modules required to access the root filesystem.
+
+For example, omitting `lvm` on a system whose root filesystem is on LVM may make the machine unbootable.
+
+---
+
+## 6.9 Add a Specific Kernel Driver
+
+```bash
+dracut -f --add-drivers "driver_name"
+```
+
+Example:
+
+```bash
+dracut -f --add-drivers "nvme"
+```
+
+Add multiple drivers:
+
+```bash
+dracut -f --add-drivers "nvme xfs dm_mod"
+```
+
+Check whether a module is available:
+
+```bash
+modinfo nvme
+```
+
+Check whether it is loaded:
+
+```bash
+lsmod | grep nvme
+```
+
+---
+
+## 6.10 Force a Driver to Load Early
+
+```bash
+dracut -f --force-drivers "driver_name"
+```
+
+Example:
+
+```bash
+dracut -f --force-drivers "nvme"
+```
+
+This places the driver in initramfs and configures it to load early during boot.
+
+---
+
+## 6.11 Exclude a Kernel Driver
+
+```bash
+dracut -f --omit-drivers "driver_name"
+```
+
+Example:
+
+```bash
+dracut -f --omit-drivers "nouveau"
+```
+
+Use this only when you fully understand whether the driver is required.
+
+---
+
+## 6.12 Build a Host-Only Initramfs
+
+```bash
+dracut -f --hostonly
+```
+
+A host-only image includes mainly the drivers and configuration required by the current machine.
+
+Advantages:
+
+- Smaller image
+- Faster generation
+- Less unnecessary content
+
+Risk:
+
+- The image may fail after moving the disk to different hardware
+- It may not include drivers required by future hardware changes
+
+---
+
+## 6.13 Build a Generic Initramfs
+
+```bash
+dracut -f --no-hostonly
+```
+
+A generic image contains a broader set of drivers.
+
+This is useful for:
+
+- Image templates
+- Hardware migration
+- Virtual machine migration
+- Recovery environments
+- Cloning a disk to different hardware
+
+---
+
+## 6.14 Display the Kernel Command Line Dracut Would Use
+
+```bash
+dracut --print-cmdline
+```
+
+Example output:
+
+```text
+root=/dev/mapper/rhel-root ro rd.lvm.lv=rhel/root rd.lvm.lv=rhel/swap
+```
+
+Compare with the current boot command line:
+
+```bash
+cat /proc/cmdline
+```
+
+---
+
+## 6.15 Show the Dracut Configuration
+
+```bash
+dracut --show-modules
+```
+
+Depending on the installed version, this shows modules selected during image creation.
+
+For complete configuration inspection, use:
+
+```bash
+cat /etc/dracut.conf
+```
+
+```bash
+find /etc/dracut.conf.d -maxdepth 1 -type f -name '*.conf' -print -exec cat {} \;
+```
+
+---
+
+## 6.16 Test Image Creation Without Overwriting the Normal Image
+
+```bash
+dracut -v /tmp/initramfs-test.img $(uname -r)
+```
+
+Verify the test image:
+
+```bash
+ls -lh /tmp/initramfs-test.img
+```
+
+Inspect it:
+
+```bash
+lsinitrd /tmp/initramfs-test.img
+```
+
+Remove it after testing:
+
+```bash
+rm -f /tmp/initramfs-test.img
+```
+
+---
+
+## 7. Important `cat` Commands Related to Dracut
+
+There is normally no command called:
+
+```bash
+cat dracut
+```
+
+Instead, use `cat` to inspect dracut configuration files.
+
+### Display the main dracut configuration
+
+```bash
+cat /etc/dracut.conf
+```
+
+### Display all dracut configuration snippets
+
+```bash
+cat /etc/dracut.conf.d/*.conf
+```
+
+### Display one custom configuration file
+
+```bash
+cat /etc/dracut.conf.d/99-custom.conf
+```
+
+### Display only active configuration lines
+
+```bash
+grep -Ev '^\s*(#|$)' /etc/dracut.conf
+```
+
+### Display active lines from all snippet files
+
+```bash
+grep -H -Ev '^\s*(#|$)' /etc/dracut.conf.d/*.conf
+```
+
+### Display the current kernel command line
+
+```bash
+cat /proc/cmdline
+```
+
+### Display filesystem configuration
+
+```bash
+cat /etc/fstab
+```
+
+### Display cryptographic disk configuration
+
+```bash
+cat /etc/crypttab
+```
+
+### Display multipath configuration
+
+```bash
+cat /etc/multipath.conf
+```
+
+These files may influence which components need to be included in initramfs.
+
+---
+
+## 8. Important Dracut Configuration Parameters
+
+A configuration snippet can be created under:
+
+```bash
+/etc/dracut.conf.d/
+```
+
+Example:
+
+```bash
+vi /etc/dracut.conf.d/99-custom.conf
+```
+
+### 8.1 Add dracut modules
+
+```bash
+add_dracutmodules+=" lvm crypt multipath "
+```
+
+### 8.2 Omit dracut modules
+
+```bash
+omit_dracutmodules+=" plymouth "
+```
+
+### 8.3 Add kernel drivers
+
+```bash
+add_drivers+=" nvme xfs dm_mod "
+```
+
+### 8.4 Force drivers to load early
+
+```bash
+force_drivers+=" nvme "
+```
+
+### 8.5 Omit drivers
+
+```bash
+omit_drivers+=" nouveau "
+```
+
+### 8.6 Enable host-only mode
+
+```bash
+hostonly="yes"
+```
+
+### 8.7 Disable host-only mode
+
+```bash
+hostonly="no"
+```
+
+### 8.8 Enable compression
+
+Example using gzip:
+
+```bash
+compress="gzip"
+```
+
+Example using xz:
+
+```bash
+compress="xz"
+```
+
+The supported compression methods depend on the distribution and installed packages.
+
+After changing configuration, rebuild the image:
+
+```bash
+dracut -f -v
+```
+
+---
+
+## 9. Inspect an Existing Initramfs with `lsinitrd`
+
+Dracut creates initramfs images. The `lsinitrd` command inspects them.
+
+Inspect the current initramfs:
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img
+```
+
+Show image size and summary:
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img | head -50
+```
+
+Search for LVM support:
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img | grep -i lvm
+```
+
+Search for multipath support:
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img | grep -i multipath
+```
+
+Search for NVMe drivers:
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img | grep -i nvme
+```
+
+Search for XFS support:
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img | grep -i xfs
+```
+
+Search for an LVM logical volume:
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img | grep -i 'rd.lvm'
+```
+
+---
+
+## 10. Safe Procedure to Rebuild Initramfs
+
+### Step 1: Identify the running kernel
+
+```bash
+uname -r
+```
+
+### Step 2: Check available `/boot` space
+
+```bash
+df -h /boot
+```
+
+### Step 3: Check the existing initramfs
+
+```bash
+ls -lh /boot/initramfs-$(uname -r).img
+```
+
+### Step 4: Back up the existing image
+
+```bash
+cp -a /boot/initramfs-$(uname -r).img \
+/boot/initramfs-$(uname -r).img.backup
+```
+
+### Step 5: Rebuild verbosely
+
+```bash
+dracut -f -v /boot/initramfs-$(uname -r).img $(uname -r)
+```
+
+### Step 6: Verify the image
+
+```bash
+ls -lh /boot/initramfs-$(uname -r).img
+```
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img | head -50
+```
+
+### Step 7: Verify bootloader entries
+
+```bash
+grubby --info=ALL
+```
+
+### Step 8: Reboot during an approved maintenance window
+
+```bash
+systemctl reboot
+```
+
+---
+
+## 11. Example: Add an NVMe Driver Permanently
+
+Create a configuration file:
+
+```bash
+cat > /etc/dracut.conf.d/90-nvme.conf <<'EOF2'
+add_drivers+=" nvme nvme_core "
+force_drivers+=" nvme "
+EOF2
+```
+
+Display it:
+
+```bash
+cat /etc/dracut.conf.d/90-nvme.conf
+```
+
+Rebuild:
+
+```bash
+dracut -f -v
+```
+
+Verify:
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img | grep -i nvme
+```
+
+---
+
+## 12. Example: Ensure LVM Support Exists
+
+Check current storage:
+
+```bash
+lsblk
+```
+
+```bash
+lvs
+```
+
+```bash
+pvs
+```
+
+```bash
+vgs
+```
+
+Add LVM support:
+
+```bash
+cat > /etc/dracut.conf.d/90-lvm.conf <<'EOF2'
+add_dracutmodules+=" lvm "
+EOF2
+```
+
+Rebuild:
+
+```bash
+dracut -f -v
+```
+
+Verify:
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img | grep -i lvm
+```
+
+---
+
+## 13. Example: Build Initramfs for Multipath Storage
+
+Check multipath:
+
+```bash
+multipath -ll
+```
+
+Create configuration:
+
+```bash
+cat > /etc/dracut.conf.d/90-multipath.conf <<'EOF2'
+add_dracutmodules+=" multipath "
+EOF2
+```
+
+Rebuild:
+
+```bash
+dracut -f -v
+```
+
+Verify:
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img | grep -i multipath
+```
+
+Also verify that the multipath configuration is included:
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img | grep -i multipath.conf
+```
+
+---
+
+## 14. Example: Build a Generic Image Before VM Migration
+
+Create a backup:
+
+```bash
+cp -a /boot/initramfs-$(uname -r).img \
+/boot/initramfs-$(uname -r).img.pre-migration
+```
+
+Build a generic image:
+
+```bash
+dracut -f -v --no-hostonly
+```
+
+Verify image contents:
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img | less
+```
+
+This can reduce the risk of a migrated virtual machine failing because the new hypervisor uses a different storage controller.
+
+---
+
+## 15. Example: Rebuild Initramfs After Changing `/etc/fstab`
+
+Normally, a simple `/etc/fstab` change does not always require rebuilding initramfs. However, rebuilding may be required when the root, boot, encrypted, LVM, or special storage configuration changes.
+
+Check the file:
+
+```bash
+cat /etc/fstab
+```
+
+Validate it:
+
+```bash
+findmnt --verify
+```
+
+Test mounts:
+
+```bash
+mount -a
+```
+
+Then rebuild if the boot-related storage configuration changed:
+
+```bash
+dracut -f -v
+```
+
+---
+
+## 16. Troubleshooting Dracut Emergency Shell
+
+When the system drops into a dracut emergency shell, start with these commands.
+
+### Display the kernel command line
+
+```bash
+cat /proc/cmdline
+```
+
+### Display disks and partitions
+
+```bash
+lsblk
+```
+
+```bash
+blkid
+```
+
+### Check device mapper
+
+```bash
+dmsetup ls
+```
+
+### Scan physical volumes
+
+```bash
+lvm pvscan
+```
+
+### Scan volume groups
+
+```bash
+lvm vgscan
+```
+
+### Activate LVM volume groups
+
+```bash
+lvm vgchange -ay
+```
+
+### List logical volumes
+
+```bash
+lvm lvs
+```
+
+### Check whether the expected root device exists
+
+```bash
+ls -l /dev/mapper/
+```
+
+### Review the dracut report
+
+```bash
+cat /run/initramfs/rdsosreport.txt
+```
+
+Search for errors:
+
+```bash
+grep -iE 'error|fail|warning|timeout' /run/initramfs/rdsosreport.txt
+```
+
+Save the report to a mounted filesystem if required:
+
+```bash
+cp /run/initramfs/rdsosreport.txt /mnt/
+```
+
+---
+
+## 17. Rebuild Initramfs from Rescue Mode
+
+Assume the installed system root filesystem is mounted under `/mnt/sysroot`.
+
+### Step 1: Mount required virtual filesystems
+
+```bash
+mount --bind /dev /mnt/sysroot/dev
+mount --bind /proc /mnt/sysroot/proc
+mount --bind /sys /mnt/sysroot/sys
+mount --bind /run /mnt/sysroot/run
+```
+
+### Step 2: Enter the installed system
+
+```bash
+chroot /mnt/sysroot
+```
+
+### Step 3: Check installed kernels
+
+```bash
+rpm -q kernel-core
+```
+
+### Step 4: Check `/boot`
+
+```bash
+df -h /boot
+```
+
+```bash
+ls -lh /boot
+```
+
+### Step 5: Rebuild the image
+
+```bash
+dracut -f -v /boot/initramfs-$(uname -r).img $(uname -r)
+```
+
+Important: In rescue mode, `uname -r` may show the rescue environment kernel rather than the installed system kernel. Therefore, it is safer to select the installed kernel version explicitly.
+
+Example:
+
+```bash
+KVER=5.14.0-503.el9.x86_64
+
+dracut -f -v /boot/initramfs-${KVER}.img ${KVER}
+```
+
+### Step 6: Exit and reboot
+
+```bash
+exit
+```
+
+```bash
+reboot
+```
+
+---
+
+## 18. Common Dracut Errors and Solutions
+
+### Error: Module directory does not exist
+
+Example:
+
+```text
+/lib/modules/<kernel-version> does not exist
+```
+
+Check:
+
+```bash
+ls -l /lib/modules/
+```
+
+Verify installed kernels:
+
+```bash
+rpm -q kernel-core
+```
+
+Reinstall the matching kernel package if needed:
+
+```bash
+dnf reinstall kernel-core-<kernel-version>
+```
+
+---
+
+### Error: No space left on device
+
+Check `/boot`:
+
+```bash
+df -h /boot
+```
+
+List kernel and initramfs files:
+
+```bash
+ls -lh /boot
+```
+
+List installed kernels:
+
+```bash
+rpm -q kernel-core
+```
+
+Remove an old kernel only after verifying it is not the running kernel and not the required fallback kernel.
+
+Never remove the current kernel:
+
+```bash
+uname -r
+```
+
+---
+
+### Error: Root logical volume not found
+
+Check the kernel command line:
+
+```bash
+cat /proc/cmdline
+```
+
+Look for parameters such as:
+
+```text
+rd.lvm.lv=rhel/root
+```
+
+Check LVM:
+
+```bash
+pvs
+vgs
+lvs
+```
+
+Verify LVM support in the image:
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img | grep -i lvm
+```
+
+Rebuild with LVM:
+
+```bash
+dracut -f -v --add "lvm"
+```
+
+---
+
+### Error: Encrypted root device is not detected
+
+Check `/etc/crypttab`:
+
+```bash
+cat /etc/crypttab
+```
+
+Check image contents:
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img | grep -i crypt
+```
+
+Rebuild:
+
+```bash
+dracut -f -v --add "crypt"
+```
+
+---
+
+### Error: Multipath root disk is missing
+
+Check multipath:
+
+```bash
+multipath -ll
+```
+
+Check image:
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img | grep -i multipath
+```
+
+Rebuild:
+
+```bash
+dracut -f -v --add "multipath"
+```
+
+---
+
+## 19. Debugging Dracut During Boot
+
+Temporary kernel parameters can be added at the GRUB screen for troubleshooting.
+
+Common dracut debugging parameters:
+
+```text
+rd.debug
+```
+
+Enable an emergency shell when failures occur:
+
+```text
+rd.shell
+```
+
+Display detailed systemd boot output:
+
+```text
+systemd.log_level=debug
+```
+
+Remove quiet boot options temporarily:
+
+```text
+rhgb quiet
+```
+
+A troubleshooting kernel line might include:
+
+```text
+rd.debug rd.shell systemd.log_level=debug
+```
+
+After boot, inspect:
+
+```bash
+journalctl -b
+```
+
+```bash
+cat /run/initramfs/rdsosreport.txt
+```
+
+---
+
+## 20. Dracut and Kernel Updates
+
+When a new kernel is installed, the package-management process normally creates its initramfs automatically.
+
+Check installed kernels:
+
+```bash
+rpm -q kernel-core
+```
+
+Check initramfs files:
+
+```bash
+ls -lh /boot/initramfs-*.img
+```
+
+Check boot entries:
+
+```bash
+grubby --info=ALL
+```
+
+Check the default kernel:
+
+```bash
+grubby --default-kernel
+```
+
+If an initramfs is missing for a kernel:
+
+```bash
+KVER=5.14.0-503.el9.x86_64
+
+dracut -f -v /boot/initramfs-${KVER}.img ${KVER}
+```
+
+---
+
+## 21. Useful Verification Commands
+
+### Current kernel
+
+```bash
+uname -r
+```
+
+### Installed kernels
+
+```bash
+rpm -q kernel-core
+```
+
+### Initramfs images
+
+```bash
+ls -lh /boot/initramfs-*.img
+```
+
+### Current boot arguments
+
+```bash
+cat /proc/cmdline
+```
+
+### Block devices
+
+```bash
+lsblk -f
+```
+
+### Filesystem UUIDs
+
+```bash
+blkid
+```
+
+### Root filesystem source
+
+```bash
+findmnt /
+```
+
+### LVM configuration
+
+```bash
+pvs
+vgs
+lvs
+```
+
+### Bootloader entries
+
+```bash
+grubby --info=ALL
+```
+
+### Initramfs contents
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img
+```
+
+---
+
+## 22. Corporate/L3 Validation Checklist
+
+Before rebuilding initramfs:
+
+- Confirm the running kernel with `uname -r`
+- Confirm the target kernel exists under `/lib/modules`
+- Verify free space in `/boot`
+- Back up the existing initramfs
+- Check LVM, RAID, multipath, encryption, and filesystem dependencies
+- Confirm the correct root device and UUID
+- Record the current bootloader configuration
+- Confirm console or out-of-band access is available
+- Keep at least one known-good kernel boot entry
+- Perform the reboot during an approved change window
+
+After rebuilding:
+
+- Confirm the initramfs file exists and has a reasonable size
+- Inspect it with `lsinitrd`
+- Confirm required modules and drivers are present
+- Confirm GRUB points to the correct initramfs
+- Reboot and validate the system
+- Review `journalctl -b` for boot errors
+- Confirm storage, network, applications, and monitoring are healthy
+
+---
+
+## 23. Quick Command Reference
+
+| Purpose | Command |
+|---|---|
+| Check dracut version | `dracut --version` |
+| Display help | `dracut --help` |
+| Rebuild current initramfs | `dracut -f` |
+| Verbose rebuild | `dracut -f -v` |
+| Rebuild all images | `dracut --regenerate-all --force` |
+| Build for specific kernel | `dracut -f /boot/initramfs-KVER.img KVER` |
+| Add dracut module | `dracut -f --add "lvm"` |
+| Omit dracut module | `dracut -f --omit "plymouth"` |
+| Add driver | `dracut -f --add-drivers "nvme"` |
+| Force driver | `dracut -f --force-drivers "nvme"` |
+| Host-only image | `dracut -f --hostonly` |
+| Generic image | `dracut -f --no-hostonly` |
+| List dracut modules | `dracut --list-modules` |
+| Print detected command line | `dracut --print-cmdline` |
+| Inspect initramfs | `lsinitrd /boot/initramfs-$(uname -r).img` |
+| Read main configuration | `cat /etc/dracut.conf` |
+| Read snippet configurations | `cat /etc/dracut.conf.d/*.conf` |
+| Read dracut failure report | `cat /run/initramfs/rdsosreport.txt` |
+
+---
+
+## 24. Interview Questions
+
+### What is dracut?
+
+Dracut is a framework and command-line utility used to generate initramfs images. The initramfs contains the drivers and tools needed during early Linux boot to locate and mount the real root filesystem.
+
+### What is initramfs?
+
+Initramfs is a temporary root filesystem loaded into RAM by the bootloader. The kernel uses it before switching to the actual root filesystem.
+
+### What is the command to rebuild initramfs for the running kernel?
+
+```bash
+dracut -f
+```
+
+### How do you rebuild initramfs verbosely?
+
+```bash
+dracut -f -v
+```
+
+### How do you inspect an initramfs image?
+
+```bash
+lsinitrd /boot/initramfs-$(uname -r).img
+```
+
+### Where is the dracut configuration stored?
+
+```text
+/etc/dracut.conf
+/etc/dracut.conf.d/*.conf
+```
+
+### What is host-only mode?
+
+Host-only mode builds an initramfs containing mainly the components needed by the current machine. It creates a smaller image but may be less portable to different hardware.
+
+### What is a generic initramfs?
+
+A generic initramfs contains a broader range of drivers and is more suitable for hardware migration, VM templates, and cloned systems.
+
+### Which file should be checked after a dracut boot failure?
+
+```bash
+cat /run/initramfs/rdsosreport.txt
+```
+
+### Why should `/boot` free space be checked before running dracut?
+
+Dracut writes initramfs images into `/boot`. If `/boot` is full, image generation may fail or produce incomplete boot files.
+
+---
+
+## 25. Final Practical Example
+
+The following sequence safely rebuilds and verifies the initramfs for the running kernel:
+
+```bash
+# Check the running kernel
+uname -r
+
+# Check free space
+df -h /boot
+
+# Confirm module directory
+ls -ld /lib/modules/$(uname -r)
+
+# Back up the current image
+cp -a /boot/initramfs-$(uname -r).img \
+/boot/initramfs-$(uname -r).img.backup
+
+# Rebuild verbosely
+dracut -f -v /boot/initramfs-$(uname -r).img $(uname -r)
+
+# Verify file size
+ls -lh /boot/initramfs-$(uname -r).img
+
+# Inspect the image
+lsinitrd /boot/initramfs-$(uname -r).img | head -50
+
+# Check bootloader entries
+grubby --info=ALL
+```
+
+The most commonly used production command is:
+
+```bash
+dracut -f -v
+```
+
+Always verify `/boot` space, preserve a known-good kernel, and confirm that required storage drivers are present before rebooting.
