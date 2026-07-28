@@ -1,0 +1,32 @@
+Linux Important Commands 126-149 validation
+Generated: 2026-07-28T14:27:55
+Topic files: 24
+Total topic lines: 7834
+Total topic bytes: 305442
+Checks: title, command section, L3 workflow, balanced code fences
+Result: PASS
+
+126. nc.md | 306 lines | 12140 bytes | PASS
+127. logrotate.md | 324 lines | 12580 bytes | PASS
+128. lsof.md | 342 lines | 12634 bytes | PASS
+129. run-parts.md | 288 lines | 11478 bytes | PASS
+130. crontab.md | 324 lines | 12365 bytes | PASS
+131. bpftrace.md | 324 lines | 12931 bytes | PASS
+132. sys block DEVICE queue scheduler.md | 324 lines | 12942 bytes | PASS
+133. strace.md | 324 lines | 12587 bytes | PASS
+134. curl.md | 342 lines | 13800 bytes | PASS
+135. promtool.md | 324 lines | 13160 bytes | PASS
+136. exportfs.md | 324 lines | 12511 bytes | PASS
+137. showmount.md | 288 lines | 11030 bytes | PASS
+138. proc lock.md | 325 lines | 12383 bytes | PASS
+139. lslocks.md | 306 lines | 11305 bytes | PASS
+140. tar.md | 342 lines | 13328 bytes | PASS
+141. restorecon.md | 324 lines | 12585 bytes | PASS
+142. rsync.md | 324 lines | 13287 bytes | PASS
+143. fsfreeze.md | 306 lines | 11931 bytes | PASS
+144. xfs_freeze.md | 288 lines | 11030 bytes | PASS
+145. sync.md | 306 lines | 11932 bytes | PASS
+146. restic.md | 397 lines | 15046 bytes | PASS
+147. find.md | 342 lines | 13202 bytes | PASS
+148. borg.md | 379 lines | 14469 bytes | PASS
+149. grub2-install.md | 361 lines | 14786 bytes | PASS
