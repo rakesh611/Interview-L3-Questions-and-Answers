@@ -1,0 +1,1530 @@
+# `/proc/cmdline` in Linux — Important Commands and Examples
+
+## 1. What is `/proc/cmdline`?
+
+`/proc/cmdline` is a virtual, read-only file in the Linux `/proc` pseudo-filesystem. It displays the exact kernel command-line parameters that were supplied to the currently running Linux kernel by the bootloader.
+
+Common bootloaders include:
+
+- GRUB2
+- systemd-boot
+- U-Boot
+- PXELINUX/iPXE
+- A hypervisor or cloud platform
+
+The kernel reads these parameters during boot to determine settings such as:
+
+- The root filesystem
+- Whether the root filesystem starts read-only or read-write
+- Console devices
+- LVM logical volumes
+- SELinux mode
+- Kernel crash-dump memory reservation
+- IOMMU configuration
+- Huge-page configuration
+- Debugging options
+- The systemd boot target
+- Storage-driver and initramfs settings
+
+The file represents the **current boot only**. Editing `/etc/default/grub` does not immediately change `/proc/cmdline`; the new parameters appear only after the bootloader configuration is updated and the system is rebooted.
+
+---
+
+## 2. Basic command
+
+```bash
+cat /proc/cmdline
+```
+
+Example output on RHEL:
+
+```text
+BOOT_IMAGE=(hd0,gpt2)/vmlinuz-5.14.0-687.30.1.el9_8.x86_64 root=/dev/mapper/rhel-root ro crashkernel=1G-4G:192M,4G-64G:256M,64G-:512M resume=/dev/mapper/rhel-swap rd.lvm.lv=rhel/root rd.lvm.lv=rhel/swap rhgb quiet
+```
+
+### Interpretation
+
+| Parameter | Meaning |
+|---|---|
+| `BOOT_IMAGE=...` | Kernel image selected by the bootloader |
+| `root=/dev/mapper/rhel-root` | Device containing the root filesystem |
+| `ro` | Initially mount the root filesystem read-only |
+| `crashkernel=...` | Reserve memory for the `kdump` crash kernel |
+| `resume=/dev/mapper/rhel-swap` | Swap device used for hibernation resume |
+| `rd.lvm.lv=rhel/root` | Tell the initramfs which LVM logical volume contains `/` |
+| `rd.lvm.lv=rhel/swap` | Tell the initramfs which LVM logical volume contains swap |
+| `rhgb` | Enable the Red Hat graphical boot screen |
+| `quiet` | Reduce normal kernel boot messages |
+
+---
+
+## 3. Important commands for `/proc/cmdline`
+
+## 3.1 Display the complete kernel command line
+
+```bash
+cat /proc/cmdline
+```
+
+Use this first when checking which parameters are active in the current boot.
+
+---
+
+## 3.2 Display using shell redirection instead of `cat`
+
+```bash
+printf '%s\n' "$(</proc/cmdline)"
+```
+
+This reads the file directly using the shell.
+
+---
+
+## 3.3 Show one boot parameter per line
+
+```bash
+tr ' ' '\n' < /proc/cmdline
+```
+
+Example output:
+
+```text
+BOOT_IMAGE=(hd0,gpt2)/vmlinuz-5.14.0-687.30.1.el9_8.x86_64
+root=/dev/mapper/rhel-root
+ro
+crashkernel=1G-4G:192M,4G-64G:256M,64G-:512M
+resume=/dev/mapper/rhel-swap
+rd.lvm.lv=rhel/root
+rd.lvm.lv=rhel/swap
+rhgb
+quiet
+```
+
+This is one of the most useful commands for quickly reading a long command line.
+
+---
+
+## 3.4 Show numbered parameters
+
+```bash
+tr ' ' '\n' < /proc/cmdline | nl -ba
+```
+
+Example:
+
+```text
+     1  BOOT_IMAGE=(hd0,gpt2)/vmlinuz-5.14.0-687.30.1.el9_8.x86_64
+     2  root=/dev/mapper/rhel-root
+     3  ro
+     4  crashkernel=1G-4G:192M,4G-64G:256M,64G-:512M
+     5  rd.lvm.lv=rhel/root
+     6  rd.lvm.lv=rhel/swap
+     7  rhgb
+     8  quiet
+```
+
+---
+
+## 3.5 Search for a specific parameter
+
+```bash
+grep -oE '(^| )root=[^ ]+' /proc/cmdline
+```
+
+Example output:
+
+```text
+ root=/dev/mapper/rhel-root
+```
+
+A simpler approach is:
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep '^root='
+```
+
+---
+
+## 3.6 Check whether a flag is active
+
+Example: check whether `quiet` is present.
+
+```bash
+grep -qw quiet /proc/cmdline && echo "quiet is enabled" || echo "quiet is not enabled"
+```
+
+Example: check whether the root filesystem was requested read-only.
+
+```bash
+grep -qw ro /proc/cmdline && echo "Kernel received ro" || echo "Kernel did not receive ro"
+```
+
+Because `/proc/cmdline` is one line, `grep -w` is preferable when checking standalone flags.
+
+---
+
+## 3.7 Extract the value of one parameter
+
+Example: obtain the `root=` value.
+
+```bash
+for parameter in $(cat /proc/cmdline); do
+    case "$parameter" in
+        root=*) echo "${parameter#root=}" ;;
+    esac
+done
+```
+
+Example output:
+
+```text
+/dev/mapper/rhel-root
+```
+
+Compact `awk` version:
+
+```bash
+awk '{for (i=1; i<=NF; i++) if ($i ~ /^root=/) {sub(/^root=/,"",$i); print $i}}' /proc/cmdline
+```
+
+---
+
+## 3.8 List all `rd.lvm.lv` parameters
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep '^rd\.lvm\.lv='
+```
+
+Example output:
+
+```text
+rd.lvm.lv=rhel/root
+rd.lvm.lv=rhel/swap
+```
+
+This is important when troubleshooting initramfs, LVM, and emergency-mode boot failures.
+
+---
+
+## 3.9 Check SELinux boot parameters
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep -E '^(selinux|enforcing)='
+```
+
+Possible parameters:
+
+```text
+selinux=0
+```
+
+Disables SELinux completely for that boot.
+
+```text
+enforcing=0
+```
+
+Boots SELinux in permissive mode.
+
+No output normally means that SELinux behavior is controlled by the regular system configuration.
+
+Also verify the runtime state:
+
+```bash
+getenforce
+sestatus
+```
+
+Do not assume that `/proc/cmdline` alone represents the final runtime state.
+
+---
+
+## 3.10 Check crash-kernel reservation
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep '^crashkernel='
+```
+
+Also verify whether memory was actually reserved:
+
+```bash
+grep -i crash /proc/iomem
+```
+
+Check the kdump service:
+
+```bash
+systemctl status kdump
+kdumpctl status
+```
+
+---
+
+## 3.11 Check console configuration
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep '^console='
+```
+
+Examples:
+
+```text
+console=tty0
+console=ttyS0,115200n8
+```
+
+Multiple `console=` parameters can be present. The last suitable console is normally used as the primary kernel console.
+
+Serial-console example:
+
+```text
+console=tty0 console=ttyS0,115200n8
+```
+
+This is common for physical servers, cloud instances, virtual machines, and remote-management consoles.
+
+---
+
+## 3.12 Check the requested systemd boot target
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep '^systemd\.unit='
+```
+
+Examples:
+
+```text
+systemd.unit=rescue.target
+systemd.unit=emergency.target
+systemd.unit=multi-user.target
+```
+
+Legacy equivalents that may also be recognized include:
+
+```text
+single
+1
+3
+5
+```
+
+For modern RHEL systems, prefer `systemd.unit=`.
+
+---
+
+## 3.13 Check debug-related parameters
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep -E '^(debug|ignore_loglevel|loglevel=|systemd\.log_level=|rd\.debug)'
+```
+
+Important examples:
+
+| Parameter | Purpose |
+|---|---|
+| `debug` | Enable extra kernel debugging output |
+| `ignore_loglevel` | Print kernel messages regardless of log level |
+| `loglevel=7` | Set kernel console log level |
+| `systemd.log_level=debug` | Enable systemd debug logging |
+| `rd.debug` | Enable dracut/initramfs debug logging |
+
+These parameters can generate a large amount of output and should normally be removed after troubleshooting.
+
+---
+
+## 3.14 Check IOMMU parameters
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep -E '^(intel_iommu|amd_iommu|iommu)='
+```
+
+Examples:
+
+```text
+intel_iommu=on
+amd_iommu=on
+iommu=pt
+```
+
+Common use cases include:
+
+- PCI passthrough
+- SR-IOV
+- VFIO
+- Virtualization
+- Device isolation
+
+Runtime checks:
+
+```bash
+dmesg | grep -Ei 'DMAR|IOMMU|AMD-Vi'
+```
+
+---
+
+## 3.15 Check huge-page parameters
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep -E '^(default_hugepagesz|hugepagesz|hugepages)='
+```
+
+Example:
+
+```text
+default_hugepagesz=1G hugepagesz=1G hugepages=16
+```
+
+Meaning:
+
+- Use 1 GiB as the default huge-page size.
+- Reserve sixteen 1 GiB huge pages during boot.
+
+Verify runtime allocation:
+
+```bash
+grep -i huge /proc/meminfo
+```
+
+---
+
+## 3.16 Check CPU isolation and latency-tuning parameters
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep -E '^(isolcpus|nohz_full|rcu_nocbs|irqaffinity)='
+```
+
+Examples:
+
+```text
+isolcpus=2-7
+nohz_full=2-7
+rcu_nocbs=2-7
+irqaffinity=0-1
+```
+
+These parameters are used in low-latency, real-time, telecommunications, and performance-sensitive environments. They should be changed only after workload testing.
+
+---
+
+## 3.17 Check security mitigation parameters
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep -E '^(mitigations|spectre_v2|pti|nosmt)='
+```
+
+Examples:
+
+```text
+mitigations=auto
+mitigations=off
+nosmt
+```
+
+Disabling CPU vulnerability mitigations may improve some workloads but creates security risk. Do not use `mitigations=off` in production without a documented risk decision.
+
+Runtime summary:
+
+```bash
+lscpu | grep -i vulnerability
+```
+
+---
+
+## 3.18 Check kernel audit configuration
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep -E '^audit='
+```
+
+Examples:
+
+```text
+audit=1
+audit=0
+```
+
+`audit=1` enables auditing early during boot, before the normal audit service is fully started.
+
+Runtime check:
+
+```bash
+systemctl status auditd
+```
+
+---
+
+## 3.19 Check cgroup configuration
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep -E '^(systemd\.unified_cgroup_hierarchy|cgroup_no_v1|systemd\.legacy_systemd_cgroup_controller)='
+```
+
+Verify the runtime cgroup version:
+
+```bash
+stat -fc %T /sys/fs/cgroup
+```
+
+Typical output for cgroup v2:
+
+```text
+cgroup2fs
+```
+
+RHEL 9 normally uses cgroup v2.
+
+---
+
+## 3.20 Count the number of boot parameters
+
+```bash
+awk '{print NF}' /proc/cmdline
+```
+
+Example output:
+
+```text
+10
+```
+
+This treats space-separated entries as individual parameters.
+
+---
+
+## 3.21 Sort parameters alphabetically
+
+```bash
+tr ' ' '\n' < /proc/cmdline | sort
+```
+
+This is useful when comparing two systems.
+
+---
+
+## 3.22 Save the current command line for incident evidence
+
+```bash
+cp /proc/cmdline /tmp/proc_cmdline.$(date +%F_%H%M%S).txt
+```
+
+Or:
+
+```bash
+cat /proc/cmdline > /var/tmp/kernel-cmdline-$(hostname)-$(date +%F_%H%M%S).txt
+```
+
+Confirm:
+
+```bash
+ls -l /var/tmp/kernel-cmdline-*.txt
+```
+
+This is useful during incident response because boot parameters are part of the system state.
+
+---
+
+## 3.23 Compare boot parameters between two servers
+
+On server 1:
+
+```bash
+tr ' ' '\n' < /proc/cmdline | sort > /tmp/server1-cmdline.txt
+```
+
+On server 2:
+
+```bash
+tr ' ' '\n' < /proc/cmdline | sort > /tmp/server2-cmdline.txt
+```
+
+Then compare:
+
+```bash
+diff -u /tmp/server1-cmdline.txt /tmp/server2-cmdline.txt
+```
+
+This can identify configuration drift affecting boot, storage, CPU, security, or performance.
+
+---
+
+## 4. Important kernel command-line parameters
+
+## 4.1 Root filesystem parameters
+
+### `root=`
+
+Specifies the root filesystem device.
+
+Examples:
+
+```text
+root=/dev/mapper/rhel-root
+root=UUID=0b1e2c3d-1111-2222-3333-abcdef123456
+root=LABEL=rootfs
+```
+
+Check the actual mounted root filesystem:
+
+```bash
+findmnt /
+lsblk -f
+```
+
+---
+
+### `ro`
+
+Requests that the root filesystem initially be mounted read-only. The init system later remounts it read-write when appropriate.
+
+### `rw`
+
+Requests that the root filesystem initially be mounted read-write.
+
+Check the current mount state:
+
+```bash
+findmnt -no TARGET,SOURCE,FSTYPE,OPTIONS /
+```
+
+`ro` in `/proc/cmdline` does not mean that `/` must still be read-only after the boot completes.
+
+---
+
+## 4.2 Initramfs and dracut parameters
+
+### `rd.lvm.lv=<VG/LV>`
+
+Specifies an LVM logical volume needed during early boot.
+
+```text
+rd.lvm.lv=rhel/root
+rd.lvm.lv=rhel/swap
+```
+
+### `rd.luks.uuid=<UUID>`
+
+Specifies a LUKS-encrypted device required during boot.
+
+### `rd.md.uuid=<UUID>`
+
+Specifies an MD RAID device required during boot.
+
+### `rd.neednet=1`
+
+Requests network configuration in the initramfs, often required for network-root or remote-storage boot.
+
+### `rd.break`
+
+Stops in the initramfs at a break point for recovery or troubleshooting.
+
+### `rd.debug`
+
+Enables detailed dracut logging.
+
+Dracut debug output may be available in:
+
+```text
+/run/initramfs/rdsosreport.txt
+```
+
+After a failed boot, this file is one of the first artifacts to inspect.
+
+---
+
+## 4.3 Graphical boot parameters
+
+### `rhgb`
+
+Uses the Red Hat graphical boot display.
+
+### `quiet`
+
+Suppresses many routine kernel messages.
+
+For troubleshooting, temporarily remove both `rhgb` and `quiet` from the GRUB boot entry so that more boot messages are visible.
+
+---
+
+## 4.4 Recovery and maintenance parameters
+
+### `systemd.unit=rescue.target`
+
+Boots into rescue mode with more services than emergency mode.
+
+### `systemd.unit=emergency.target`
+
+Boots into the most minimal systemd emergency environment.
+
+### `rd.break`
+
+Breaks into the initramfs before the real root filesystem is fully switched.
+
+### `init=/bin/bash`
+
+Starts `/bin/bash` instead of the normal init process. This is a powerful emergency option and bypasses normal service startup and security controls. Use only in controlled recovery situations.
+
+---
+
+## 4.5 SELinux parameters
+
+### `enforcing=0`
+
+Boots SELinux in permissive mode for one boot.
+
+### `selinux=0`
+
+Disables SELinux for the boot. Re-enabling SELinux later may require a filesystem relabel.
+
+Prefer permissive mode for troubleshooting instead of completely disabling SELinux:
+
+```text
+enforcing=0
+```
+
+---
+
+## 4.6 Networking parameters used in early boot
+
+Examples:
+
+```text
+ip=dhcp
+ip=192.0.2.10::192.0.2.1:255.255.255.0:server01:ens192:none
+nameserver=192.0.2.53
+rd.neednet=1
+bootdev=ens192
+```
+
+These may be required for:
+
+- NFS root
+- iSCSI root
+- Network-based installation
+- Remote storage
+- PXE boot
+
+---
+
+## 4.7 Kernel crash dump parameters
+
+Example:
+
+```text
+crashkernel=1G-4G:192M,4G-64G:256M,64G-:512M
+```
+
+The value reserves RAM for a secondary kernel that captures a memory dump after a kernel panic.
+
+Check:
+
+```bash
+kdumpctl status
+grep -i 'Crash kernel' /proc/iomem
+```
+
+---
+
+## 5. Practical troubleshooting examples
+
+## 5.1 System enters emergency mode after an LVM change
+
+### Step 1: Check active boot parameters
+
+```bash
+cat /proc/cmdline
+```
+
+### Step 2: List LVM parameters
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep '^rd\.lvm\.lv='
+```
+
+### Step 3: Compare with real LVM names
+
+```bash
+vgs
+lvs -a -o vg_name,lv_name,lv_path
+```
+
+Example problem:
+
+```text
+/proc/cmdline: rd.lvm.lv=rhel/root
+Actual LV:       production/root
+```
+
+The initramfs may search for a logical volume that no longer exists under the old name.
+
+### Step 4: Review GRUB entries
+
+```bash
+grubby --info=ALL
+```
+
+### Step 5: Correct the parameter on RHEL
+
+```bash
+grubby --update-kernel=ALL \
+  --remove-args='rd.lvm.lv=rhel/root' \
+  --args='rd.lvm.lv=production/root'
+```
+
+### Step 6: Rebuild initramfs when required
+
+```bash
+dracut -f
+```
+
+### Step 7: Reboot and validate
+
+```bash
+reboot
+```
+
+After reboot:
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep '^rd\.lvm\.lv='
+```
+
+Always keep a tested console or recovery path before changing boot parameters remotely.
+
+---
+
+## 5.2 Boot is hiding an important error
+
+Check whether graphical and quiet boot are enabled:
+
+```bash
+grep -Eo '(^| )(rhgb|quiet)( |$)' /proc/cmdline
+```
+
+At the GRUB menu, temporarily edit the boot entry and remove:
+
+```text
+rhgb quiet
+```
+
+Boot with the modified line. This change normally applies only to that boot and helps expose kernel, driver, storage, and systemd messages.
+
+After boot, examine:
+
+```bash
+journalctl -b -p warning
+journalctl -b -k
+systemctl --failed
+```
+
+---
+
+## 5.3 System booted into rescue or emergency mode unexpectedly
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep -E '^(systemd\.unit=|single$|[13]$)'
+```
+
+Possible unexpected output:
+
+```text
+systemd.unit=emergency.target
+```
+
+Check the persistent bootloader entry:
+
+```bash
+grubby --info=ALL
+```
+
+Remove an unwanted parameter:
+
+```bash
+grubby --update-kernel=ALL --remove-args='systemd.unit=emergency.target'
+```
+
+Reboot and verify:
+
+```bash
+systemctl get-default
+cat /proc/cmdline
+```
+
+---
+
+## 5.4 Kdump service does not start
+
+Check the command line:
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep '^crashkernel='
+```
+
+Check memory reservation:
+
+```bash
+grep -i crash /proc/iomem
+```
+
+Check service state:
+
+```bash
+systemctl status kdump
+kdumpctl status
+journalctl -u kdump -b
+```
+
+If no crash kernel was reserved, add an appropriate value according to the platform and RHEL guidance, then reboot:
+
+```bash
+grubby --update-kernel=ALL --args='crashkernel=auto'
+```
+
+The accepted/recommended value varies by RHEL release, hardware, installed memory, and kdump requirements. Validate the value for the target environment before production use.
+
+---
+
+## 5.5 Verify whether a tuning change survived reboot
+
+Suppose you added:
+
+```text
+intel_iommu=on iommu=pt
+```
+
+Check the running kernel:
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep -E '^(intel_iommu|iommu)='
+```
+
+Check kernel detection:
+
+```bash
+dmesg | grep -Ei 'DMAR|IOMMU'
+```
+
+Check persistent GRUB entries:
+
+```bash
+grubby --info=ALL | grep -E 'args=|intel_iommu|iommu'
+```
+
+A parameter appearing in the bootloader configuration but not in `/proc/cmdline` usually means the system has not booted using the modified entry, or the expected entry was not updated.
+
+---
+
+## 6. Compare `/proc/cmdline` with persistent boot configuration
+
+## 6.1 Show current running parameters
+
+```bash
+cat /proc/cmdline
+```
+
+## 6.2 Show all RHEL kernel entries
+
+```bash
+grubby --info=ALL
+```
+
+## 6.3 Show the default kernel
+
+```bash
+grubby --default-kernel
+```
+
+## 6.4 Show the default entry index
+
+```bash
+grubby --default-index
+```
+
+## 6.5 Show the currently running kernel release
+
+```bash
+uname -r
+```
+
+## 6.6 Show the kernel image corresponding to the running release
+
+```bash
+printf '/boot/vmlinuz-%s\n' "$(uname -r)"
+```
+
+## 6.7 Show arguments for the running kernel entry
+
+```bash
+grubby --info="/boot/vmlinuz-$(uname -r)"
+```
+
+Look for the `args=` field and compare it with:
+
+```bash
+cat /proc/cmdline
+```
+
+Some bootloader-added fields, formatting, and `BOOT_IMAGE=` representation may differ. Focus on the functional kernel parameters.
+
+---
+
+## 7. Permanently add or remove kernel parameters on RHEL
+
+## 7.1 Add a parameter to all installed kernel entries
+
+```bash
+grubby --update-kernel=ALL --args='audit=1'
+```
+
+## 7.2 Add multiple parameters
+
+```bash
+grubby --update-kernel=ALL --args='intel_iommu=on iommu=pt'
+```
+
+## 7.3 Remove one parameter
+
+```bash
+grubby --update-kernel=ALL --remove-args='quiet'
+```
+
+## 7.4 Remove multiple parameters
+
+```bash
+grubby --update-kernel=ALL --remove-args='rhgb quiet'
+```
+
+## 7.5 Update only the currently running kernel entry
+
+```bash
+grubby --update-kernel="/boot/vmlinuz-$(uname -r)" --args='audit=1'
+```
+
+## 7.6 Verify before reboot
+
+```bash
+grubby --info=ALL
+```
+
+## 7.7 Reboot
+
+```bash
+systemctl reboot
+```
+
+## 7.8 Verify after reboot
+
+```bash
+cat /proc/cmdline
+```
+
+### Important
+
+A `grubby` modification changes bootloader entries, not the already running kernel. Most kernel command-line changes require a reboot.
+
+---
+
+## 8. `/etc/default/grub` and GRUB configuration
+
+A common configuration file is:
+
+```bash
+cat /etc/default/grub
+```
+
+Typical entry:
+
+```text
+GRUB_CMDLINE_LINUX="crashkernel=auto rd.lvm.lv=rhel/root rd.lvm.lv=rhel/swap rhgb quiet"
+```
+
+On modern RHEL systems using Boot Loader Specification entries, `grubby` is generally the safer operational tool for managing kernel arguments.
+
+When manually changing GRUB configuration, the exact regeneration command and output path depend on whether the system uses BIOS or UEFI and on the RHEL release. Do not blindly overwrite an EFI vendor configuration path without validating the platform layout.
+
+Useful checks:
+
+```bash
+findmnt /boot
+findmnt /boot/efi
+ls -l /etc/grub2.cfg /etc/grub2-efi.cfg 2>/dev/null
+ls -l /boot/loader/entries/ 2>/dev/null
+```
+
+---
+
+## 9. Temporary parameter change from the GRUB menu
+
+A temporary change is useful for testing or recovery.
+
+General procedure:
+
+1. Reboot the system.
+2. Stop at the GRUB menu.
+3. Select the required kernel entry.
+4. Press `e` to edit.
+5. Locate the line beginning with `linux`, `linuxefi`, or a similar kernel-loading directive.
+6. Add or remove the required parameter.
+7. Boot using the key shown by GRUB, commonly `Ctrl+x` or `F10`.
+8. After boot, verify with:
+
+```bash
+cat /proc/cmdline
+```
+
+A temporary GRUB edit normally disappears at the next reboot.
+
+---
+
+## 10. Useful shell script: kernel command-line report
+
+Create the script:
+
+```bash
+cat > /usr/local/sbin/kernel-cmdline-report.sh <<'SCRIPT'
+#!/usr/bin/env bash
+set -u
+
+CMDLINE_FILE="/proc/cmdline"
+
+if [[ ! -r "$CMDLINE_FILE" ]]; then
+    echo "ERROR: Cannot read $CMDLINE_FILE" >&2
+    exit 1
+fi
+
+cmdline=$(<"$CMDLINE_FILE")
+
+echo "Kernel command-line report"
+echo "=========================="
+echo "Hostname       : $(hostname -f 2>/dev/null || hostname)"
+echo "Current kernel : $(uname -r)"
+echo "Boot time      : $(uptime -s 2>/dev/null || echo unknown)"
+echo
+echo "Raw command line:"
+echo "$cmdline"
+echo
+echo "Parameters:"
+printf '%s\n' "$cmdline" | tr ' ' '\n' | nl -ba
+
+echo
+echo "Selected values:"
+for key in root resume crashkernel systemd.unit selinux enforcing console; do
+    value=$(printf '%s\n' "$cmdline" | tr ' ' '\n' | grep -E "^${key}=" | paste -sd ',' -)
+    if [[ -n "$value" ]]; then
+        printf '%-14s: %s\n' "$key" "$value"
+    else
+        printf '%-14s: %s\n' "$key" "not specified"
+    fi
+done
+
+echo
+echo "Standalone flags:"
+for flag in ro rw quiet rhgb debug rd.break rd.debug; do
+    if printf '%s\n' "$cmdline" | tr ' ' '\n' | grep -qx -- "$flag"; then
+        printf '%-14s: present\n' "$flag"
+    else
+        printf '%-14s: absent\n' "$flag"
+    fi
+done
+SCRIPT
+```
+
+Make it executable:
+
+```bash
+chmod 0755 /usr/local/sbin/kernel-cmdline-report.sh
+```
+
+Run it:
+
+```bash
+/usr/local/sbin/kernel-cmdline-report.sh
+```
+
+Save the report:
+
+```bash
+/usr/local/sbin/kernel-cmdline-report.sh \
+  > /var/tmp/kernel-cmdline-report-$(hostname)-$(date +%F_%H%M%S).txt
+```
+
+---
+
+## 11. Useful shell function to obtain a parameter value
+
+Add this function to a shell script:
+
+```bash
+get_kernel_arg() {
+    local key=${1:?Usage: get_kernel_arg KEY}
+    local item
+
+    for item in $(</proc/cmdline); do
+        case "$item" in
+            "$key"=*) printf '%s\n' "${item#*=}" ;;
+        esac
+    done
+}
+```
+
+Examples:
+
+```bash
+get_kernel_arg root
+get_kernel_arg crashkernel
+get_kernel_arg console
+```
+
+Note that a parameter such as `console=` can appear more than once, so the function may print multiple values.
+
+---
+
+## 12. Check a required production baseline
+
+Example script:
+
+```bash
+#!/usr/bin/env bash
+set -u
+
+required_flags=("audit=1")
+missing=0
+cmdline=" $(</proc/cmdline) "
+
+for required in "${required_flags[@]}"; do
+    if [[ "$cmdline" == *" $required "* ]]; then
+        echo "PASS: $required"
+    else
+        echo "FAIL: $required is missing"
+        missing=1
+    fi
+done
+
+exit "$missing"
+```
+
+This pattern can be integrated into compliance or post-reboot validation, but parameter requirements must match the organization's approved baseline.
+
+---
+
+## 13. Important differences
+
+## `/proc/cmdline`
+
+- Shows parameters used by the currently running kernel.
+- Is read-only.
+- Is generated by the kernel.
+- Changes only after booting with a different command line.
+
+## `/etc/default/grub`
+
+- Is a persistent configuration input.
+- May be used when generating bootloader configuration.
+- Editing it does not affect the running kernel.
+
+## `grubby --info=ALL`
+
+- Shows installed kernel boot entries and their configured arguments on RHEL-family systems.
+- Helps identify whether all entries or only one entry was updated.
+
+## `/proc/config.gz` or `/boot/config-$(uname -r)`
+
+- Shows compile-time kernel configuration options.
+- Does not show boot-time kernel arguments.
+
+Example:
+
+```bash
+grep CONFIG_IOMMU /boot/config-$(uname -r)
+```
+
+## `sysctl`
+
+- Shows or modifies many runtime kernel tunables.
+- Is different from boot-time command-line arguments.
+
+Example:
+
+```bash
+sysctl kernel.nmi_watchdog
+```
+
+Some settings have both boot-time and runtime controls, but they are not interchangeable in every case.
+
+---
+
+## 14. Security considerations
+
+### 14.1 `/proc/cmdline` may be readable by users
+
+Check permissions:
+
+```bash
+ls -l /proc/cmdline
+```
+
+Do not place passwords, tokens, private keys, or other secrets directly in kernel command-line parameters. They may be visible through:
+
+- `/proc/cmdline`
+- Bootloader configuration
+- Hypervisor metadata
+- Cloud console records
+- Support bundles
+- Diagnostic logs
+
+### 14.2 Boot parameters can weaken security
+
+Examples include:
+
+```text
+selinux=0
+mitigations=off
+init=/bin/bash
+module.sig_enforce=0
+```
+
+Such parameters may be justified in narrowly controlled troubleshooting, but they should not remain in production without review.
+
+### 14.3 Remote changes can make the host unbootable
+
+Incorrect changes to `root=`, `rd.lvm.lv=`, LUKS, RAID, storage, console, or initramfs parameters can prevent normal boot. Before modifying them:
+
+- Confirm out-of-band console access.
+- Preserve at least one known-good boot entry.
+- Record the original parameters.
+- Validate backups.
+- Use a maintenance window.
+- Prepare rollback steps.
+
+---
+
+## 15. Common mistakes
+
+### Mistake 1: Trying to edit `/proc/cmdline`
+
+Incorrect:
+
+```bash
+vi /proc/cmdline
+```
+
+`/proc/cmdline` is a kernel-provided read-only view. Modify the bootloader entry instead.
+
+---
+
+### Mistake 2: Assuming `ro` means `/` is currently read-only
+
+Check the live mount:
+
+```bash
+findmnt -no OPTIONS /
+```
+
+The root filesystem may have been remounted read-write during boot.
+
+---
+
+### Mistake 3: Editing GRUB but not rebooting
+
+Persistent changes do not appear in `/proc/cmdline` until the system boots with the changed entry.
+
+---
+
+### Mistake 4: Updating only one kernel entry
+
+After a kernel upgrade, the new entry may not include a setting if it was added only to a specific older kernel entry. Check:
+
+```bash
+grubby --info=ALL
+```
+
+---
+
+### Mistake 5: Removing storage parameters without understanding initramfs
+
+Parameters such as `rd.lvm.lv=`, `rd.luks.uuid=`, and `rd.md.uuid=` can be essential before the real root filesystem is available.
+
+---
+
+### Mistake 6: Disabling SELinux instead of diagnosing the denial
+
+Prefer:
+
+```bash
+ausearch -m AVC,USER_AVC -ts recent
+journalctl -t setroubleshoot
+```
+
+Use permissive mode temporarily only when necessary and document the reason.
+
+---
+
+## 16. Quick command reference
+
+```bash
+# Show the active kernel command line
+cat /proc/cmdline
+
+# One parameter per line
+tr ' ' '\n' < /proc/cmdline
+
+# Number each parameter
+tr ' ' '\n' < /proc/cmdline | nl -ba
+
+# Count parameters
+awk '{print NF}' /proc/cmdline
+
+# Show root device
+tr ' ' '\n' < /proc/cmdline | grep '^root='
+
+# Show LVM initramfs parameters
+tr ' ' '\n' < /proc/cmdline | grep '^rd\.lvm\.lv='
+
+# Show crashkernel setting
+tr ' ' '\n' < /proc/cmdline | grep '^crashkernel='
+
+# Show console settings
+tr ' ' '\n' < /proc/cmdline | grep '^console='
+
+# Show SELinux overrides
+tr ' ' '\n' < /proc/cmdline | grep -E '^(selinux|enforcing)='
+
+# Show rescue/emergency target
+tr ' ' '\n' < /proc/cmdline | grep '^systemd\.unit='
+
+# Check for quiet boot
+grep -qw quiet /proc/cmdline && echo enabled || echo disabled
+
+# Show the running kernel
+uname -r
+
+# Show all configured RHEL boot entries
+grubby --info=ALL
+
+# Show default RHEL kernel
+grubby --default-kernel
+
+# Save incident evidence
+cat /proc/cmdline > /var/tmp/proc-cmdline-$(date +%F_%H%M%S).txt
+```
+
+---
+
+## 17. Interview questions and answers
+
+### Q1. What does `/proc/cmdline` contain?
+
+It contains the kernel command-line arguments supplied to the currently running kernel during boot.
+
+### Q2. Can `/proc/cmdline` be edited directly?
+
+No. It is a read-only virtual file generated by the kernel. Persistent changes must be made in the bootloader configuration.
+
+### Q3. Does editing `/etc/default/grub` immediately change `/proc/cmdline`?
+
+No. The bootloader configuration must be updated as required, and the system must reboot using the modified entry.
+
+### Q4. How do you show one parameter per line?
+
+```bash
+tr ' ' '\n' < /proc/cmdline
+```
+
+### Q5. How do you check the root device supplied to the kernel?
+
+```bash
+tr ' ' '\n' < /proc/cmdline | grep '^root='
+```
+
+### Q6. Why might `rd.lvm.lv=` be important?
+
+The initramfs may need it to locate and activate an LVM logical volume containing the root filesystem or swap during early boot.
+
+### Q7. What is the difference between `ro` in `/proc/cmdline` and the current `/` mount mode?
+
+`ro` is the initial boot request. The root filesystem may later be remounted read-write. Use `findmnt /` to verify the current state.
+
+### Q8. How do you temporarily obtain more boot messages?
+
+At the GRUB menu, edit the kernel entry and temporarily remove `rhgb quiet`, then boot and inspect the visible messages and journal.
+
+### Q9. How do you validate that a persistent kernel argument is active?
+
+Reboot and confirm it in `/proc/cmdline`, then validate the related kernel or subsystem behavior with tools such as `dmesg`, `journalctl`, or subsystem-specific commands.
+
+### Q10. Why should secrets not be placed in the kernel command line?
+
+The command line may be exposed through `/proc/cmdline`, bootloader files, support bundles, hypervisor interfaces, and logs.
+
+---
+
+## 18. Corporate/L3 validation workflow
+
+Use this sequence for a controlled change:
+
+1. Capture the current state.
+
+```bash
+uname -r
+cat /proc/cmdline
+grubby --info=ALL
+```
+
+2. Record the reason, risk, owner, maintenance window, and rollback plan.
+
+3. Confirm console access and the existence of a known-good boot entry.
+
+4. Apply the argument through the approved bootloader-management method.
+
+5. Verify the persistent entry before reboot.
+
+```bash
+grubby --info=ALL
+```
+
+6. Reboot in the approved window.
+
+7. Validate the running command line.
+
+```bash
+cat /proc/cmdline
+```
+
+8. Validate the intended functional effect.
+
+Examples:
+
+```bash
+dmesg | grep -Ei 'IOMMU|DMAR'
+grep -i huge /proc/meminfo
+kdumpctl status
+getenforce
+systemctl --failed
+```
+
+9. Compare performance and error metrics with the baseline.
+
+10. Roll back immediately if boot stability, security, or application performance regresses.
+
+---
+
+## 19. Summary
+
+`/proc/cmdline` is the authoritative view of the boot parameters used by the currently running Linux kernel. The most useful command is:
+
+```bash
+cat /proc/cmdline
+```
+
+For easier analysis, use:
+
+```bash
+tr ' ' '\n' < /proc/cmdline
+```
+
+For RHEL boot-entry comparison and persistent changes, use:
+
+```bash
+grubby --info=ALL
+```
+
+After changing persistent boot parameters, reboot and always validate the actual running state again through `/proc/cmdline` and subsystem-specific commands.

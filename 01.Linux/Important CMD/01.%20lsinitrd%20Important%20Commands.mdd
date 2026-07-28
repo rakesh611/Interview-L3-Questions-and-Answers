@@ -1,0 +1,1467 @@
+# lsinitrd — Important Linux Commands and Practical Examples
+
+**File:** `01. lsinitrd Important Commands.mdd`  
+**Primary platform:** RHEL, CentOS Stream, Rocky Linux, AlmaLinux, Fedora  
+**Related components:** `dracut`, `initramfs`, Linux kernel, GRUB, LVM, LUKS, device mapper
+
+---
+
+## 1. What is `lsinitrd`?
+
+`lsinitrd` is a diagnostic command used to display and inspect the contents of a Linux
+`initramfs` or `initrd` image.
+
+An initramfs is a small temporary root filesystem loaded into memory during the early
+Linux boot process. It contains the programs, kernel modules, configuration files,
+udev rules, and scripts required to locate and mount the real root filesystem.
+
+Typical initramfs files on RHEL-like systems are stored under `/boot`:
+
+```bash
+/boot/initramfs-5.14.0-503.el9_5.x86_64.img
+/boot/initramfs-5.14.0-570.el9_6.x86_64.img
+```
+
+The normal boot sequence is approximately:
+
+```text
+Firmware/BIOS/UEFI
+        |
+        v
+Bootloader such as GRUB
+        |
+        v
+Linux kernel + initramfs
+        |
+        v
+Initramfs finds storage, LVM, RAID, LUKS, and root filesystem
+        |
+        v
+Real root filesystem is mounted
+        |
+        v
+systemd starts the operating system
+```
+
+`lsinitrd` is especially useful when a server:
+
+- Drops into a `dracut:/#` emergency shell.
+- Cannot find the root logical volume.
+- Cannot unlock a LUKS-encrypted disk.
+- Cannot detect an NVMe, SCSI, RAID, SAN, or multipath device.
+- Fails after a kernel update.
+- Boots with an older kernel but not with the newest kernel.
+- Has an unexpectedly small or incomplete initramfs.
+- Is missing a required storage, filesystem, or dracut module.
+
+`lsinitrd` normally reads an image; it does not rebuild or modify it.
+
+---
+
+## 2. Command package and availability
+
+`lsinitrd` is supplied by the dracut project.
+
+Check whether it is installed:
+
+```bash
+command -v lsinitrd
+```
+
+Example:
+
+```text
+/usr/bin/lsinitrd
+```
+
+On an RPM-based system, identify the package that owns it:
+
+```bash
+rpm -qf "$(command -v lsinitrd)"
+```
+
+Example:
+
+```text
+dracut-057-70.git20240819.el9.x86_64
+```
+
+Check the installed dracut package:
+
+```bash
+rpm -q dracut
+```
+
+Install it on a RHEL-compatible system when it is missing:
+
+```bash
+sudo dnf install dracut
+```
+
+Display the local command help:
+
+```bash
+lsinitrd --help
+```
+
+Display the manual page:
+
+```bash
+man lsinitrd
+```
+
+---
+
+## 3. Basic syntax
+
+```bash
+lsinitrd [OPTIONS] [INITRAMFS_IMAGE [FILE...]]
+```
+
+Inspect an image associated with a kernel version:
+
+```bash
+lsinitrd [OPTIONS] -k KERNEL_VERSION
+```
+
+Important options:
+
+| Option | Long option | Purpose |
+|---|---|---|
+| `-h` | `--help` | Display help |
+| `-s` | `--size` | Sort image contents by file size |
+| `-f FILE` | `--file FILE` | Print a specific file from the image |
+| `-k VERSION` | `--kver VERSION` | Inspect the initramfs for a kernel version |
+| `-m` | `--mod` | Show dracut modules included in the image |
+| `--unpack` | — | Extract the normal initramfs into the current directory |
+| `--unpackearly` | — | Extract the early microcode section |
+| `-v` | `--verbose` | Show verbose extraction output |
+
+The exact content and internal paths vary by distribution, kernel, dracut version,
+hardware, and whether the image was built in host-only or generic mode.
+
+---
+
+# 4. Important `lsinitrd` commands
+
+## 4.1 Inspect the default initramfs
+
+```bash
+sudo lsinitrd
+```
+
+When no image is supplied, `lsinitrd` attempts to locate the default image according
+to the distribution's initramfs layout and local kernel information.
+
+Typical output sections include:
+
+```text
+Image: /boot/initramfs-5.14.0-xxx.el9.x86_64.img
+Arguments: ...
+Version: ...
+dracut modules:
+...
+dracut cmdline:
+...
+Included files:
+...
+```
+
+Use this for a quick overview of the currently selected/default image.
+
+---
+
+## 4.2 Inspect the running kernel's initramfs using its full path
+
+```bash
+sudo lsinitrd "/boot/initramfs-$(uname -r).img"
+```
+
+First confirm the file exists:
+
+```bash
+uname -r
+ls -lh "/boot/initramfs-$(uname -r).img"
+```
+
+Example:
+
+```text
+-rw-------. 1 root root 42M Jul 28 10:20 /boot/initramfs-5.14.0-687.30.1.el9_8.x86_64.img
+```
+
+This is one of the most commonly used commands on RHEL systems.
+
+---
+
+## 4.3 Inspect the initramfs by kernel version
+
+```bash
+sudo lsinitrd -k "$(uname -r)"
+```
+
+This avoids manually constructing the `/boot/initramfs-<version>.img` path.
+
+Inspect another installed kernel:
+
+```bash
+sudo lsinitrd -k 5.14.0-687.26.1.el9_8.x86_64
+```
+
+List installed kernel module directories first:
+
+```bash
+ls -1 /lib/modules
+```
+
+List installed kernel packages:
+
+```bash
+rpm -q kernel-core
+```
+
+---
+
+## 4.4 Show only included dracut modules
+
+```bash
+sudo lsinitrd -m -k "$(uname -r)"
+```
+
+Example output:
+
+```text
+dracut modules:
+systemd
+systemd-initrd
+bash
+modsign
+dbus-broker
+i18n
+network-manager
+kernel-modules
+kernel-modules-extra
+lvm
+dm
+crypt
+rootfs-block
+fs-lib
+shutdown
+```
+
+This command is useful when checking whether an expected dracut feature was included.
+
+Examples:
+
+```bash
+sudo lsinitrd -m -k "$(uname -r)" | grep -w lvm
+sudo lsinitrd -m -k "$(uname -r)" | grep -w crypt
+sudo lsinitrd -m -k "$(uname -r)" | grep -E 'multipath|lvm|crypt|network'
+```
+
+A dracut module is not the same thing as a Linux kernel module. For example:
+
+- `lvm` is a dracut module.
+- `dm_mod.ko` is a Linux kernel module.
+- `xfs.ko` is a Linux filesystem kernel module.
+
+---
+
+## 4.5 Sort files by size
+
+```bash
+sudo lsinitrd -s -k "$(uname -r)"
+```
+
+Inspect the largest entries:
+
+```bash
+sudo lsinitrd -s -k "$(uname -r)" | tail -30
+```
+
+This helps identify:
+
+- Large firmware files.
+- Large kernel modules.
+- Duplicate or unexpected content.
+- An image that grew significantly after an update.
+- Drivers included by a generic initramfs.
+
+Compare overall initramfs sizes:
+
+```bash
+ls -lh /boot/initramfs-*.img
+```
+
+---
+
+## 4.6 Search for a file or driver in the image
+
+Search the complete listing:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" | grep -i xfs
+```
+
+Search for exact kernel module names:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" | grep -E '/xfs\.ko(\.|$)'
+sudo lsinitrd -k "$(uname -r)" | grep -E '/dm_mod\.ko(\.|$)'
+sudo lsinitrd -k "$(uname -r)" | grep -E '/dm_crypt\.ko(\.|$)'
+sudo lsinitrd -k "$(uname -r)" | grep -E '/nvme\.ko(\.|$)'
+```
+
+Kernel modules may be compressed:
+
+```text
+xfs.ko.xz
+xfs.ko.zst
+```
+
+Therefore, a more flexible search is often useful:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    grep -E '/(xfs|dm_mod|dm_crypt|nvme)\.ko(\.(xz|zst|gz))?$'
+```
+
+---
+
+## 4.7 Print an embedded file from the initramfs
+
+Use `-f` to display a specific internal file:
+
+```bash
+sudo lsinitrd -f etc/cmdline.d/95root-dev.conf -k "$(uname -r)"
+```
+
+An illustrative result might be:
+
+```text
+root=/dev/mapper/rhel-root
+resume=/dev/mapper/rhel-swap
+rd.lvm.lv=rhel/root
+rd.lvm.lv=rhel/swap
+```
+
+A leading `/` is normally optional because `lsinitrd` strips it internally:
+
+```bash
+sudo lsinitrd -f /etc/cmdline.d/95root-dev.conf -k "$(uname -r)"
+```
+
+First locate candidate files when the exact filename is unknown:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" | grep 'etc/cmdline.d'
+```
+
+Other useful embedded files may include:
+
+```bash
+sudo lsinitrd -f etc/fstab -k "$(uname -r)"
+sudo lsinitrd -f etc/crypttab -k "$(uname -r)"
+sudo lsinitrd -f etc/multipath.conf -k "$(uname -r)"
+sudo lsinitrd -f etc/lvm/lvm.conf -k "$(uname -r)"
+```
+
+These files may not exist in every image.
+
+---
+
+## 4.8 Display embedded dracut kernel parameters
+
+The normal `lsinitrd` report contains a `dracut cmdline` section.
+
+Extract it:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    sed -n '/dracut cmdline:/,/^========================================================================/p'
+```
+
+Search important parameters:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    grep -E 'root=|rd\.lvm|rd\.luks|rd\.md|rd\.multipath|resume='
+```
+
+Common parameters:
+
+| Parameter | Meaning |
+|---|---|
+| `root=` | Root filesystem device |
+| `rd.lvm.lv=` | Required LVM logical volume |
+| `rd.luks.uuid=` | LUKS device required during early boot |
+| `rd.md.uuid=` | Software RAID array |
+| `rd.multipath=` | Multipath requirement |
+| `resume=` | Swap/hibernation resume device |
+| `rd.driver.blacklist=` | Driver excluded during early boot |
+
+Compare the embedded information with the active kernel command line:
+
+```bash
+cat /proc/cmdline
+```
+
+Also inspect the GRUB boot entry:
+
+```bash
+grubby --info="$(grubby --default-kernel)"
+```
+
+---
+
+## 4.9 Check whether LVM support exists
+
+Check the dracut `lvm` module:
+
+```bash
+sudo lsinitrd -m -k "$(uname -r)" | grep -w lvm
+```
+
+Check LVM programs and libraries:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    grep -E '(^|/)(lvm|vgchange|lvchange|dmsetup)( |$)'
+```
+
+Check device-mapper kernel modules:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    grep -E '/(dm_mod|dm_snapshot|dm_mirror|dm_raid)\.ko'
+```
+
+Check embedded LVM root parameters:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    grep -E 'rd\.lvm\.lv=|root=/dev/mapper/'
+```
+
+Example expected configuration:
+
+```text
+rd.lvm.lv=rhel/root
+root=/dev/mapper/rhel-root
+```
+
+If a system drops to the dracut shell and the `lvm` command is unavailable there,
+a missing LVM component in the initramfs is a strong diagnostic clue.
+
+---
+
+## 4.10 Check filesystem support
+
+Determine the real root filesystem:
+
+```bash
+findmnt -no SOURCE,FSTYPE /
+```
+
+Example:
+
+```text
+/dev/mapper/rhel-root xfs
+```
+
+Check XFS support:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" | grep -E '/xfs\.ko'
+```
+
+Check ext4 support:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" | grep -E '/ext4\.ko'
+```
+
+Check Btrfs support:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" | grep -E '/btrfs\.ko'
+```
+
+Some filesystem support may be built directly into the kernel rather than present as
+a separate `.ko` file. Therefore, absence from `lsinitrd` is not always proof that the
+kernel lacks the capability.
+
+Check the kernel configuration when available:
+
+```bash
+grep -E '^CONFIG_(XFS|EXT4_FS|BTRFS_FS)=' "/boot/config-$(uname -r)"
+```
+
+Example:
+
+```text
+CONFIG_XFS_FS=m
+CONFIG_EXT4_FS=y
+```
+
+`=m` means a loadable module is expected.  
+`=y` means the feature is built into the kernel.
+
+---
+
+## 4.11 Check storage controller drivers
+
+Identify the active storage controller:
+
+```bash
+lspci -nnk | grep -A3 -Ei 'storage|sata|scsi|raid|non-volatile'
+```
+
+Identify the driver used for a block device:
+
+```bash
+udevadm info --query=property --name=/dev/sda | grep -E 'ID_MODEL|ID_PATH'
+```
+
+Search common drivers in the initramfs:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    grep -E '/(ahci|nvme|virtio_blk|virtio_scsi|megaraid_sas|mpt3sas|qla2xxx|lpfc)\.ko'
+```
+
+Common examples:
+
+| Workload/platform | Possible driver |
+|---|---|
+| SATA/AHCI | `ahci` |
+| NVMe | `nvme` |
+| KVM virtual disk | `virtio_blk`, `virtio_scsi` |
+| VMware | `vmw_pvscsi` |
+| Dell/LSI RAID | `megaraid_sas` |
+| Broadcom/LSI SAS | `mpt3sas` |
+| Fibre Channel | `qla2xxx`, `lpfc` |
+
+The required driver depends on the actual hardware and storage path.
+
+---
+
+## 4.12 Check LUKS and encrypted-root support
+
+Check included dracut modules:
+
+```bash
+sudo lsinitrd -m -k "$(uname -r)" | grep -E 'crypt|systemd-cryptsetup'
+```
+
+Check cryptsetup and device-mapper content:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    grep -E 'cryptsetup|dm_crypt|systemd-cryptsetup'
+```
+
+Check embedded LUKS parameters:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" | grep -E 'rd\.luks|luks-'
+```
+
+Check the running system:
+
+```bash
+lsblk -f
+sudo cryptsetup status <mapping-name>
+```
+
+Example:
+
+```bash
+sudo cryptsetup status luks-root
+```
+
+A missing `crypt` dracut module, `cryptsetup` binary, or `dm_crypt` kernel module can
+prevent an encrypted root device from being opened.
+
+---
+
+## 4.13 Check multipath and SAN boot support
+
+Check the multipath dracut module:
+
+```bash
+sudo lsinitrd -m -k "$(uname -r)" | grep -w multipath
+```
+
+Search multipath content:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    grep -E 'multipath|multipathd|scsi_id|wwid'
+```
+
+Check configuration files:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    grep -E 'etc/multipath|etc/multipath\.conf'
+```
+
+Check Fibre Channel drivers:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    grep -E '/(qla2xxx|lpfc)\.ko'
+```
+
+Compare with the running system:
+
+```bash
+sudo multipath -ll
+cat /etc/multipath/wwids
+```
+
+For a root filesystem on multipath storage, the image must contain all early-boot
+components required to discover the paths and create the mapper device.
+
+---
+
+## 4.14 Check software RAID support
+
+Check for the mdraid dracut module:
+
+```bash
+sudo lsinitrd -m -k "$(uname -r)" | grep -E 'mdraid|dmraid'
+```
+
+Search for RAID utilities and modules:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    grep -E 'mdadm|raid[0-9]|dm_raid'
+```
+
+Check embedded RAID parameters:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" | grep -E 'rd\.md|rd\.dm'
+```
+
+Compare with the running system:
+
+```bash
+cat /proc/mdstat
+sudo mdadm --detail --scan
+```
+
+---
+
+## 4.15 Check network-boot support
+
+List network-related dracut modules:
+
+```bash
+sudo lsinitrd -m -k "$(uname -r)" |
+    grep -E 'network|network-manager|iscsi|nfs|nbde'
+```
+
+Search for network configuration and tools:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    grep -E 'NetworkManager|nm-initrd|dhclient|ip=|iscsi|nfs'
+```
+
+Check embedded boot parameters:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    grep -E 'ip=|root=nfs|netroot=|rd\.iscsi|rd\.neednet'
+```
+
+Network support is important for:
+
+- NFS root.
+- iSCSI root.
+- Network Bound Disk Encryption.
+- Remote storage that must be initialized before mounting `/`.
+
+---
+
+## 4.16 Extract the complete initramfs
+
+Create an empty working directory:
+
+```bash
+mkdir -p /tmp/initramfs-extract
+cd /tmp/initramfs-extract
+```
+
+Extract the normal initramfs:
+
+```bash
+sudo lsinitrd --unpack -k "$(uname -r)"
+```
+
+List extracted content:
+
+```bash
+find . -maxdepth 3 -type f | sort | less
+```
+
+Important safety rule:
+
+```text
+Always use --unpack inside a new, empty directory.
+```
+
+Do not run it from `/`, `/boot`, `/etc`, or another important directory.
+
+`--unpack` extracts files into the current directory but does not modify the original
+initramfs image.
+
+---
+
+## 4.17 Extract only selected files
+
+Create a clean directory:
+
+```bash
+mkdir -p /tmp/initramfs-selected
+cd /tmp/initramfs-selected
+```
+
+Extract selected paths:
+
+```bash
+sudo lsinitrd --unpack -k "$(uname -r)" \
+    etc/cmdline.d/95root-dev.conf \
+    etc/lvm/lvm.conf
+```
+
+Display them:
+
+```bash
+find . -type f -maxdepth 5 -print
+```
+
+Only files that actually exist in the image will be extracted.
+
+---
+
+## 4.18 Extract the early microcode section
+
+Create an empty directory:
+
+```bash
+mkdir -p /tmp/initramfs-early
+cd /tmp/initramfs-early
+```
+
+Extract the early section:
+
+```bash
+sudo lsinitrd --unpackearly -k "$(uname -r)"
+```
+
+Inspect it:
+
+```bash
+find . -ls
+```
+
+The early section may contain CPU microcode or other data that must be processed before
+the main initramfs archive.
+
+The normal `--unpack` option does not extract the early cpio section; use
+`--unpackearly` for that part.
+
+---
+
+## 4.19 Use verbose extraction
+
+```bash
+mkdir -p /tmp/initramfs-verbose
+cd /tmp/initramfs-verbose
+sudo lsinitrd --unpack --verbose -k "$(uname -r)"
+```
+
+Short option:
+
+```bash
+sudo lsinitrd --unpack -v -k "$(uname -r)"
+```
+
+Verbose mode is useful when extraction fails or when you need to see each extracted
+object.
+
+---
+
+## 4.20 Save the complete report
+
+```bash
+sudo lsinitrd -k "$(uname -r)" > "/tmp/lsinitrd-$(uname -r).txt"
+```
+
+Include errors as well:
+
+```bash
+sudo lsinitrd -k "$(uname -r)" \
+    > "/tmp/lsinitrd-$(uname -r).txt" 2>&1
+```
+
+Compress the report:
+
+```bash
+gzip "/tmp/lsinitrd-$(uname -r).txt"
+```
+
+This is useful for incident records, vendor support cases, and before-and-after
+comparisons.
+
+---
+
+# 5. Comparing two initramfs images
+
+A common incident pattern is:
+
+```text
+Old kernel boots successfully.
+New kernel drops to dracut emergency shell.
+```
+
+Generate reports:
+
+```bash
+OLD_KVER=5.14.0-687.26.1.el9_8.x86_64
+NEW_KVER=5.14.0-687.30.1.el9_8.x86_64
+
+sudo lsinitrd -k "$OLD_KVER" > "/tmp/lsinitrd-$OLD_KVER.txt"
+sudo lsinitrd -k "$NEW_KVER" > "/tmp/lsinitrd-$NEW_KVER.txt"
+```
+
+Compare them:
+
+```bash
+diff -u \
+    "/tmp/lsinitrd-$OLD_KVER.txt" \
+    "/tmp/lsinitrd-$NEW_KVER.txt" |
+    less
+```
+
+Compare only dracut modules:
+
+```bash
+sudo lsinitrd -m -k "$OLD_KVER" > /tmp/old.modules
+sudo lsinitrd -m -k "$NEW_KVER" > /tmp/new.modules
+
+diff -u /tmp/old.modules /tmp/new.modules
+```
+
+Compare relevant boot components:
+
+```bash
+for KVER in "$OLD_KVER" "$NEW_KVER"; do
+    sudo lsinitrd -k "$KVER" |
+        grep -E 'lvm|dm_mod|xfs|ext4|nvme|virtio|megaraid|mpt3sas|qla2xxx|lpfc|cryptsetup|multipath' |
+        sort -u > "/tmp/$KVER.boot-components"
+done
+
+diff -u \
+    "/tmp/$OLD_KVER.boot-components" \
+    "/tmp/$NEW_KVER.boot-components"
+```
+
+Check image sizes:
+
+```bash
+ls -lh \
+    "/boot/initramfs-$OLD_KVER.img" \
+    "/boot/initramfs-$NEW_KVER.img"
+```
+
+A much smaller new image may indicate missing content, although image size alone is not
+proof of corruption.
+
+---
+
+# 6. Practical troubleshooting scenarios
+
+## Scenario 1: Root LVM logical volume is not found
+
+Symptoms:
+
+```text
+Warning: /dev/mapper/rhel-root does not exist
+Warning: /dev/rhel/root does not exist
+Entering emergency mode
+dracut:/#
+```
+
+Check:
+
+```bash
+KVER="$(uname -r)"
+
+sudo lsinitrd -m -k "$KVER" | grep -w lvm
+
+sudo lsinitrd -k "$KVER" |
+    grep -E 'lvm|dmsetup|dm_mod|rd\.lvm\.lv=|root=/dev/mapper/'
+```
+
+Expected items normally include:
+
+- Dracut `lvm` module.
+- `lvm`/`dmsetup` userspace tools.
+- Device-mapper kernel support.
+- Correct `rd.lvm.lv=<vg>/<lv>` parameter.
+- Correct root mapper path.
+
+Confirm running configuration:
+
+```bash
+findmnt /
+sudo lvs -a -o +devices
+cat /proc/cmdline
+grubby --info="$(grubby --default-kernel)"
+```
+
+---
+
+## Scenario 2: New kernel cannot detect the root disk
+
+Symptoms:
+
+```text
+dracut-initqueue timeout
+/dev/root does not exist
+```
+
+Identify the storage driver while booted with a working kernel:
+
+```bash
+lspci -nnk | grep -A3 -Ei 'storage|sata|scsi|raid|non-volatile'
+lsblk -o NAME,TYPE,FSTYPE,SIZE,MODEL
+```
+
+Check the failing image:
+
+```bash
+sudo lsinitrd -k <failing-kernel-version> |
+    grep -E '/(ahci|nvme|virtio_blk|virtio_scsi|vmw_pvscsi|megaraid_sas|mpt3sas)\.ko'
+```
+
+Compare against the working image:
+
+```bash
+sudo lsinitrd -k <working-kernel-version> > /tmp/working.initramfs
+sudo lsinitrd -k <failing-kernel-version> > /tmp/failing.initramfs
+diff -u /tmp/working.initramfs /tmp/failing.initramfs | less
+```
+
+---
+
+## Scenario 3: Encrypted root device is not unlocked
+
+Check:
+
+```bash
+sudo lsinitrd -m -k <kernel-version> | grep crypt
+
+sudo lsinitrd -k <kernel-version> |
+    grep -E 'cryptsetup|dm_crypt|rd\.luks|crypttab'
+```
+
+Compare required LUKS UUIDs:
+
+```bash
+sudo blkid -t TYPE=crypto_LUKS
+cat /etc/crypttab
+cat /proc/cmdline
+```
+
+---
+
+## Scenario 4: Filesystem cannot be mounted
+
+Example boot message:
+
+```text
+mount: unknown filesystem type 'xfs'
+```
+
+Check root filesystem type:
+
+```bash
+findmnt -no FSTYPE /
+```
+
+Check initramfs:
+
+```bash
+sudo lsinitrd -k <kernel-version> | grep -E '/xfs\.ko'
+```
+
+Check kernel configuration:
+
+```bash
+grep '^CONFIG_XFS_FS=' "/boot/config-<kernel-version>"
+```
+
+Interpretation:
+
+```text
+CONFIG_XFS_FS=y    # built directly into the kernel
+CONFIG_XFS_FS=m    # separate kernel module required
+```
+
+---
+
+## Scenario 5: SAN or multipath root device is missing
+
+Check:
+
+```bash
+sudo lsinitrd -m -k <kernel-version> |
+    grep -E 'multipath|lvm'
+
+sudo lsinitrd -k <kernel-version> |
+    grep -E 'multipath|wwid|qla2xxx|lpfc|scsi_dh|dm_multipath'
+```
+
+Check the working OS:
+
+```bash
+sudo multipath -ll
+cat /etc/multipath/wwids
+lsmod | grep -E 'qla2xxx|lpfc|dm_multipath'
+```
+
+---
+
+## Scenario 6: Initramfs appears incomplete after a kernel update
+
+Check image size and modification time:
+
+```bash
+ls -lh --time-style=long-iso /boot/initramfs-*.img
+```
+
+Check whether `lsinitrd` can read it:
+
+```bash
+sudo lsinitrd -k <kernel-version> > /tmp/initramfs-check.txt
+echo $?
+```
+
+Check key components:
+
+```bash
+sudo lsinitrd -m -k <kernel-version>
+
+sudo lsinitrd -k <kernel-version> |
+    grep -E 'lvm|dm_mod|xfs|ext4|nvme|virtio|megaraid|mpt3sas'
+```
+
+Check installed modules:
+
+```bash
+ls -ld "/lib/modules/<kernel-version>"
+find "/lib/modules/<kernel-version>" -type f | head
+```
+
+---
+
+# 7. Rebuilding initramfs after verification
+
+`lsinitrd` only inspects the image. Use `dracut` to rebuild it.
+
+Before rebuilding, verify:
+
+```bash
+KVER="$(uname -r)"
+
+test -d "/lib/modules/$KVER" &&
+    echo "Kernel module directory exists"
+
+df -h /boot
+df -i /boot
+ls -lh "/boot/initramfs-$KVER.img"
+```
+
+Back up the existing image:
+
+```bash
+sudo cp -a \
+    "/boot/initramfs-$KVER.img" \
+    "/boot/initramfs-$KVER.img.backup.$(date +%F-%H%M%S)"
+```
+
+Rebuild the current kernel's image:
+
+```bash
+sudo dracut --force
+```
+
+Explicit image and kernel version:
+
+```bash
+sudo dracut --force \
+    "/boot/initramfs-$KVER.img" \
+    "$KVER"
+```
+
+Verify after rebuilding:
+
+```bash
+sudo lsinitrd -m -k "$KVER"
+sudo lsinitrd -k "$KVER" |
+    grep -E 'lvm|dm_mod|xfs|nvme|virtio|megaraid|mpt3sas'
+```
+
+Do not reboot until the rebuilt image has been checked.
+
+---
+
+# 8. Useful one-liners
+
+## Show initramfs path and size
+
+```bash
+KVER="$(uname -r)"
+ls -lh "/boot/initramfs-$KVER.img"
+```
+
+## Count entries
+
+```bash
+sudo lsinitrd -k "$(uname -r)" | wc -l
+```
+
+## List all kernel modules found in the image
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    awk '{print $NF}' |
+    grep -E '\.ko(\.(xz|zst|gz))?$' |
+    sort -u
+```
+
+## Count kernel modules
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    grep -Ec '\.ko(\.(xz|zst|gz))?$'
+```
+
+## Search boot-critical components
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    grep -Ei 'lvm|dm_mod|xfs|ext4|nvme|virtio|megaraid|mpt3sas|qla2xxx|lpfc|cryptsetup|multipath'
+```
+
+## Show only dracut modules
+
+```bash
+sudo lsinitrd -m -k "$(uname -r)"
+```
+
+## Find embedded command-line configuration
+
+```bash
+sudo lsinitrd -k "$(uname -r)" |
+    grep 'etc/cmdline.d'
+```
+
+## Compare current and previous image sizes
+
+```bash
+ls -lhtr /boot/initramfs-*.img
+```
+
+## Save a support report
+
+```bash
+sudo sh -c 'lsinitrd -k "$(uname -r)" > "/tmp/lsinitrd-$(uname -r).txt" 2>&1'
+```
+
+---
+
+# 9. Reading `lsinitrd` output
+
+A typical report may contain:
+
+## Image metadata
+
+```text
+Image: /boot/initramfs-<kernel>.img
+```
+
+Confirms the exact image being inspected.
+
+## Build arguments
+
+```text
+Arguments: --kver ... --hostonly ...
+```
+
+Shows some arguments used during image creation when recorded by dracut.
+
+## Dracut modules
+
+```text
+dracut modules:
+lvm
+dm
+kernel-modules
+rootfs-block
+```
+
+These are functional dracut components included during image creation.
+
+## Embedded command line
+
+```text
+dracut cmdline:
+root=/dev/mapper/rhel-root
+rd.lvm.lv=rhel/root
+```
+
+These parameters influence early boot.
+
+## File listing
+
+```text
+usr/bin/lvm
+usr/sbin/dmsetup
+usr/lib/modules/<kernel>/kernel/fs/xfs/xfs.ko.xz
+```
+
+This is the actual image content.
+
+---
+
+# 10. Common mistakes
+
+## Mistake 1: Inspecting the running kernel instead of the failing kernel
+
+Wrong approach:
+
+```bash
+lsinitrd -k "$(uname -r)"
+```
+
+This checks only the currently running kernel. If the server was booted with an older
+working kernel, specify the failing kernel explicitly:
+
+```bash
+lsinitrd -k <failing-kernel-version>
+```
+
+## Mistake 2: Assuming a missing `.ko` always means no support
+
+A driver or filesystem may be built directly into the kernel:
+
+```bash
+grep '^CONFIG_XFS_FS=' /boot/config-<kernel-version>
+```
+
+## Mistake 3: Running `--unpack` in an unsafe directory
+
+Do not do this:
+
+```bash
+cd /
+lsinitrd --unpack ...
+```
+
+Use an empty temporary directory.
+
+## Mistake 4: Looking only for uncompressed `.ko`
+
+Modules may end with:
+
+```text
+.ko
+.ko.xz
+.ko.zst
+.ko.gz
+```
+
+Use a flexible regular expression.
+
+## Mistake 5: Rebuilding before preserving evidence
+
+Before changing anything, save:
+
+```bash
+ls -lh /boot/initramfs-*.img
+sudo lsinitrd -k <kernel-version> > /tmp/before-lsinitrd.txt
+cp -a /etc/dracut.conf /tmp/ 2>/dev/null
+cp -a /etc/dracut.conf.d /tmp/ 2>/dev/null
+```
+
+## Mistake 6: Rebooting without verifying `/boot` free space
+
+Check both capacity and inodes:
+
+```bash
+df -h /boot
+df -i /boot
+```
+
+A failed or partial initramfs build can leave the next boot unusable.
+
+---
+
+# 11. Corporate/L3 incident collection template
+
+Run this while booted into a working kernel:
+
+```bash
+#!/usr/bin/env bash
+set -u
+
+OUT="/tmp/initramfs-incident-$(date +%F-%H%M%S)"
+mkdir -p "$OUT"
+
+uname -a > "$OUT/uname.txt"
+cat /proc/cmdline > "$OUT/proc-cmdline.txt"
+lsblk -f > "$OUT/lsblk.txt"
+findmnt > "$OUT/findmnt.txt"
+df -h /boot > "$OUT/boot-space.txt"
+df -i /boot > "$OUT/boot-inodes.txt"
+ls -lh /boot/initramfs-*.img > "$OUT/initramfs-files.txt" 2>&1
+rpm -q kernel kernel-core dracut > "$OUT/packages.txt" 2>&1
+grubby --default-kernel > "$OUT/default-kernel.txt" 2>&1
+grubby --info=ALL > "$OUT/grubby-all.txt" 2>&1
+
+for KDIR in /lib/modules/*; do
+    [ -d "$KDIR" ] || continue
+    KVER="${KDIR##*/}"
+
+    sudo lsinitrd -k "$KVER" \
+        > "$OUT/lsinitrd-$KVER.txt" 2>&1
+
+    sudo lsinitrd -m -k "$KVER" \
+        > "$OUT/dracut-modules-$KVER.txt" 2>&1
+done
+
+tar -C /tmp -czf "$OUT.tar.gz" "${OUT##*/}"
+
+echo "Report: $OUT.tar.gz"
+```
+
+This script collects evidence but does not rebuild or modify initramfs images.
+
+---
+
+# 12. Recommended diagnostic workflow
+
+Use this sequence during a boot incident:
+
+```text
+1. Identify the working and failing kernel versions.
+2. Preserve the failing image and collect lsinitrd output.
+3. Check /boot capacity and inodes.
+4. Compare image sizes.
+5. Compare included dracut modules.
+6. Verify the root storage controller driver.
+7. Verify LVM/device-mapper support.
+8. Verify the root filesystem driver.
+9. Verify LUKS, RAID, multipath, or network-root support as applicable.
+10. Compare embedded root parameters with GRUB and /etc/fstab.
+11. Review dracut configuration.
+12. Rebuild only after the likely cause is understood.
+13. Inspect the rebuilt image.
+14. Keep a known-good GRUB entry available.
+15. Reboot during an approved change window.
+```
+
+---
+
+# 13. Quick command reference
+
+```bash
+# Help
+lsinitrd --help
+
+# Inspect default image
+sudo lsinitrd
+
+# Inspect running kernel image
+sudo lsinitrd -k "$(uname -r)"
+
+# Inspect explicit image
+sudo lsinitrd "/boot/initramfs-$(uname -r).img"
+
+# List included dracut modules
+sudo lsinitrd -m -k "$(uname -r)"
+
+# Sort image content by size
+sudo lsinitrd -s -k "$(uname -r)"
+
+# Print one internal file
+sudo lsinitrd -f etc/cmdline.d/95root-dev.conf -k "$(uname -r)"
+
+# Search for LVM
+sudo lsinitrd -k "$(uname -r)" | grep -i lvm
+
+# Search for XFS
+sudo lsinitrd -k "$(uname -r)" | grep -E '/xfs\.ko'
+
+# Search common storage drivers
+sudo lsinitrd -k "$(uname -r)" |
+    grep -E '/(nvme|ahci|virtio_blk|virtio_scsi|megaraid_sas|mpt3sas)\.ko'
+
+# Extract normal initramfs in an empty directory
+mkdir -p /tmp/initramfs-extract
+cd /tmp/initramfs-extract
+sudo lsinitrd --unpack -k "$(uname -r)"
+
+# Extract early microcode section in an empty directory
+mkdir -p /tmp/initramfs-early
+cd /tmp/initramfs-early
+sudo lsinitrd --unpackearly -k "$(uname -r)"
+```
+
+---
+
+# 14. Summary
+
+`lsinitrd` is the primary inspection command for dracut-generated initramfs images.
+It answers questions such as:
+
+- Which dracut modules are present?
+- Is the LVM module included?
+- Does the image contain the required storage driver?
+- Is the root filesystem module present?
+- Are LUKS, RAID, multipath, or network components included?
+- Which kernel parameters were embedded?
+- What changed between a working and failing kernel image?
+- Is the image unexpectedly small or missing files?
+
+The most important commands are:
+
+```bash
+sudo lsinitrd -k "$(uname -r)"
+sudo lsinitrd -m -k "$(uname -r)"
+sudo lsinitrd -s -k "$(uname -r)"
+sudo lsinitrd -f <internal-file> -k "$(uname -r)"
+sudo lsinitrd --unpack -k "$(uname -r)"
+sudo lsinitrd --unpackearly -k "$(uname -r)"
+```
+
+Always inspect and preserve evidence before rebuilding an initramfs, and always verify
+the rebuilt image before rebooting a production server.
+
+---
+
+## References
+
+- `man lsinitrd`
+- `man dracut`
+- Upstream dracut documentation: https://dracut-ng.github.io/
+- Linux manual page: https://man7.org/linux/man-pages/man1/lsinitrd.1.html
+- Red Hat Enterprise Linux documentation: https://docs.redhat.com/
